@@ -3,22 +3,23 @@ import torch.nn as nn
 from torch.nn import functional as F
 
 # Hyperparameters
-batch_size = 64
-block_size = 256  # Context Length
-max_iters = 5000
+batch_size = 16
+block_size = 64  # Context Length
+max_iters = 20000
 eval_interval = 500
-learning_rate = 3e-4
+learning_rate = 1e-3 #3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
-n_embd = 384
-n_head = 6
+n_embd = 256 # needs to be divisible by n_head
+n_head = 8
 n_layer = 6
 dropout = 0.2
+save_path = 'model_3.pth'
 # --------------------
 
 torch.manual_seed(1337)
 
-with open('input.txt', 'r', encoding='utf-8') as f:
+with open('news-commentary-v10.txt', 'r', encoding='utf-8') as f:
     text = f.read()
 
 chars = sorted(list(set(text)))
@@ -184,3 +185,5 @@ for iter in range(max_iters):
 
 context = torch.zeros((1,1), dtype = torch.long, device = device)
 print(decode(m.generate(context, max_new_tokens = 500)[0].tolist()))
+
+torch.save(model.state_dict(), save_path)
