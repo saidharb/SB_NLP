@@ -2,37 +2,21 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
+
 # Hyperparameters
-batch_size = 16
-block_size = 64  # Context Length
-max_iters = 20000
+batch_size = 8
+block_size = 32  # Context Length
+max_iters = 1000
 eval_interval = 500
 learning_rate = 1e-3 #3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
-n_embd = 256 # needs to be divisible by n_head
+n_embd = 64 # needs to be divisible by n_head
 n_head = 8
 n_layer = 6
 dropout = 0.2
-save_path = 'model_3.pth'
+save_path = 'model_exp.pth'
 # --------------------
-
-torch.manual_seed(1337)
-
-with open('news-commentary-v10.txt', 'r', encoding='utf-8') as f:
-    text = f.read()
-
-chars = sorted(list(set(text)))
-vocab_size = len(chars)
-stoi = { ch:i for i,ch in enumerate(chars) } # string to integer
-itos = { i:ch for i,ch in enumerate(chars) } # integer to string
-encode = lambda s: [stoi[c] for c in s]
-decode = lambda l: ''.join([itos[i] for i in l])
-
-data = torch.tensor(encode(text), dtype = torch.long)
-n = int(0.9 * len(data))
-train_data = data[:n]
-val_data = data[n:]
 
 def get_batch(split):
     # generate a small batch of data of inputs x and targets y
@@ -124,7 +108,7 @@ class Block(nn.Module):
         return x
 
 class BigramLanguageModel(nn.Module):
-    def __init__(self):
+    def __init__(self, vocab_size = 26, block_size = 16, n_embd = 32, n_head = 4, n_layer = 6):
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.position_embedding_table = nn.Embedding(block_size, n_embd)
@@ -134,7 +118,6 @@ class BigramLanguageModel(nn.Module):
 
     def forward(self, idx, targets = None):
         B, T = idx.shape
-
         # idx and targets are both (B,T) tensor of integers
         tok_emb = self.token_embedding_table(idx) # (B,T,C)
         pos_emb = self.position_embedding_table(torch.arange(T, device = device)) # (T, C)
@@ -166,24 +149,54 @@ class BigramLanguageModel(nn.Module):
         return idx
 
 
+if __name__ == '__main__':
+    torch.manual_seed(1337)
 
-model = BigramLanguageModel()
-m = model.to(device)
+    with open('news-commentary-v10.txt', 'r', encoding='utf-8') as f:
+        text = f.read()
 
-optimizer = torch.optim.AdamW(model.parameters(), lr = learning_rate)
+    chars = sorted(list(set(text)))
+    vocab_size = len(chars)
+    stoi = {ch: i for i, ch in enumerate(chars)}  # string to integer
+    itos = {i: ch for i, ch in enumerate(chars)}  # integer to string
+    encode = lambda s: [stoi[c] for c in s]
+    decode = lambda l: ''.join([itos[i] for i in l])
 
-for iter in range(max_iters):
-    if iter % eval_interval == 0:
-        losses = estimate_loss()
-        print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+    config = {
+        'vocab_size': vocab_size,
+        'block_size': block_size,
+        'n_embd': n_embd,
+        'n_head': n_head,
+        'n_layer': n_layer
+    }
 
-    xb, yb = get_batch('train')
-    logits, loss = model(xb, yb)
-    optimizer.zero_grad(set_to_none = True)
-    loss.backward()
-    optimizer.step()
+    data = torch.tensor(encode(text), dtype=torch.long)
+    n = int(0.9 * len(data))
+    train_data = data[:n]
+    val_data = data[n:]
 
-context = torch.zeros((1,1), dtype = torch.long, device = device)
-print(decode(m.generate(context, max_new_tokens = 500)[0].tolist()))
+    model = BigramLanguageModel(**config)
+    m = model.to(device)
 
-torch.save(model.state_dict(), save_path)
+    optimizer = torch.optim.AdamW(model.parameters(), lr = learning_rate)
+
+    for iter in range(max_iters):
+        if iter % eval_interval == 0:
+            losses = estimate_loss()
+            print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+
+        xb, yb = get_batch('train')
+        logits, loss = model(xb, yb)
+        optimizer.zero_grad(set_to_none = True)
+        loss.backward()
+        optimizer.step()
+
+    context = torch.zeros((1,1), dtype = torch.long, device = device)
+    print(decode(m.generate(context, max_new_tokens = 500)[0].tolist()))
+
+    checkpoint = {
+        'model_state_dict': model.state_dict(),
+        'config': config
+    }
+
+    torch.save(checkpoint, save_path)
