@@ -2,21 +2,9 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 
-
-# Hyperparameters
-batch_size = 8
-block_size = 32  # Context Length
-max_iters = 1000
-eval_interval = 500
-learning_rate = 1e-3 #3e-4
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-eval_iters = 200
-n_embd = 64 # needs to be divisible by n_head
-n_head = 8
-n_layer = 6
 dropout = 0.2
-save_path = 'model_exp.pth'
-# --------------------
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 
 def get_batch(split):
     # generate a small batch of data of inputs x and targets y
@@ -43,7 +31,7 @@ def estimate_loss():
 
 class Head(nn.Module):
     """ One Head of Self-Attention"""
-    def __init__(self, head_size):
+    def __init__(self, block_size, n_embd, head_size):
         super().__init__()
         self.key = nn.Linear(n_embd, head_size, bias = False)
         self.query = nn.Linear(n_embd, head_size, bias = False)
@@ -68,9 +56,9 @@ class Head(nn.Module):
 
 class MultiHeadAttention(nn.Module):
 
-    def __init__(self, num_heads, head_size):
+    def __init__(self, block_size, n_embd, num_heads, head_size):
         super().__init__()
-        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+        self.heads = nn.ModuleList([Head(block_size, n_embd, head_size) for _ in range(num_heads)])
         self.proj = nn.Linear(n_embd, n_embd)
         self.dropout = nn.Dropout(dropout)
 
@@ -94,10 +82,10 @@ class FeedForward(nn.Module):
 
 class Block(nn.Module):
 
-    def __init__(self, n_embd, n_head):
+    def __init__(self, block_size, n_embd, n_head):
         super().__init__()
         head_size = n_embd // n_head
-        self.sa = MultiHeadAttention(n_head, head_size)
+        self.sa = MultiHeadAttention(block_size, n_embd, n_head, head_size)
         self.ffwd = FeedForward(n_embd)
         self.ln1 = nn.LayerNorm(n_embd)
         self.ln2 = nn.LayerNorm(n_embd)
@@ -110,9 +98,10 @@ class Block(nn.Module):
 class BigramLanguageModel(nn.Module):
     def __init__(self, vocab_size = 26, block_size = 16, n_embd = 32, n_head = 4, n_layer = 6):
         super().__init__()
+        self.block_size = block_size
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
-        self.position_embedding_table = nn.Embedding(block_size, n_embd)
-        self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_head) for _ in range(n_layer)])
+        self.position_embedding_table = nn.Embedding(self.block_size, n_embd)
+        self.blocks = nn.Sequential(*[Block(self.block_size, n_embd, n_head=n_head) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd)
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
@@ -136,7 +125,7 @@ class BigramLanguageModel(nn.Module):
 
     def generate(self, idx, max_new_tokens):
         for _ in range(max_new_tokens):
-            idx_cond = idx[:, -block_size:]
+            idx_cond = idx[:, -self.block_size:]
             logits, loss = self(idx_cond)
             logits = logits[:,-1,:] # because no targets -> Loss is None -> logits still have to be permuted -> becomes (B, C)
             probs = F.softmax(logits, dim = -1)
@@ -150,6 +139,18 @@ class BigramLanguageModel(nn.Module):
 
 
 if __name__ == '__main__':
+    # Hyperparameters
+    batch_size = 8
+    block_size = 32  # Context Length
+    max_iters = 1000
+    eval_interval = 500
+    learning_rate = 3e-4 #1e-3
+    eval_iters = 200
+    n_embd = 64 # needs to be divisible by n_head
+    n_head = 8
+    n_layer = 6
+    save_path = 'model_exp.pth'
+    # --------------------
     torch.manual_seed(1337)
 
     with open('news-commentary-v10.txt', 'r', encoding='utf-8') as f:
@@ -183,7 +184,7 @@ if __name__ == '__main__':
     for iter in range(max_iters):
         if iter % eval_interval == 0:
             losses = estimate_loss()
-            print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+            print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}", flush = True)
 
         xb, yb = get_batch('train')
         logits, loss = model(xb, yb)
