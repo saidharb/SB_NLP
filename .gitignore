@@ -2,3 +2,5 @@
 .ipynb_checkpoints/
 .virtual_documents/
 *.pth
+__pycache__/
+
